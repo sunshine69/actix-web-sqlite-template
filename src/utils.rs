@@ -2,6 +2,18 @@ extern crate sqlite;
 
 use std::env;
 
+pub fn string_to_static_str(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+
+pub fn get_env(key: &str, default_val: &str) -> String {
+    if let Ok(output) = env::var(key) {
+        output
+    } else {
+        default_val.to_string()
+    }
+}
+
 pub fn get_dbconnection() -> sqlite::Connection {
     if let Ok(db_path) = env::var("DB_PATH") {
         sqlite::open(db_path).unwrap()
