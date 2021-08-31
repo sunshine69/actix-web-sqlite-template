@@ -3,12 +3,15 @@ use actix_web::guard::Header;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 
 use futures::StreamExt;
+
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, Map, Number};
 
 extern crate dotenv;
 use dotenv::dotenv;
 
 extern crate sqlite;
+use sqlite::State;
 
 #[path = "utils.rs"]
 mod u;
@@ -38,8 +41,9 @@ struct Log {
     message: String,
     logfile: String
 }
-const MAX_SIZE: usize = 262_144; // max payload size is 256k
 
+// example curl to savelog and use message field as the content of a text file mylog
+// curl -X POST 'http://localhost:8080/savelog' -H "Content-Type: multipart/form-data" -H 'X-Gitlab-Token: 1234' -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode 'logfile={"event": "started", "file": "codeception.yml", "error_code": -1}' --data-urlencode 'application={"event": "started", "file": "codeception.yml", "error_code": -1}' --data-urlencode 'host=test host' --data-urlencode "message=$(cat mylog)"
 #[post("/savelog")]
 async fn savelog(form: web::Form<Log>) -> Result<HttpResponse, Error> {
     let conn = u::get_dbconnection();
@@ -53,6 +57,7 @@ async fn savelog(form: web::Form<Log>) -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().body("OK log saved"))
 }
 
+const MAX_SIZE: usize = 262_144; // max payload size is 256k
 #[post("/json/savelog")]
 async fn savelog_json(mut payload: web::Payload) -> Result<HttpResponse, Error> {
     // let conn = u::get_dbconnection();
@@ -69,6 +74,34 @@ async fn savelog_json(mut payload: web::Payload) -> Result<HttpResponse, Error> 
     let obj = serde_json::from_slice::<Log>(&body)?;
     Ok(HttpResponse::Ok().json(obj))
     // Ok(HttpResponse::Ok().json("{\"status\": \"OK\"}")) // <- send response
+}
+//Run a select SQL and dump the output. Poor man sql console
+#[derive(Serialize, Deserialize)]
+struct FormSql {
+    sql: String,
+}
+#[post("/sql")]
+async fn runsql(form: web::Form<FormSql>) -> Result<HttpResponse, Error> {
+    let conn = u::get_dbconnection();
+    let sql = form.sql.as_str();
+    let mut statement = conn.prepare(sql).unwrap();
+    let mut result_vec: Vec<Map<String, serde_json::Value>> = Vec::new();
+    while let State::Row = statement.next().unwrap() {
+        let mut _temp = Map::new();
+        for colidx in 0..statement.column_count() {
+            match statement.column_type(colidx) {
+                sqlite::Type::String => _temp.insert(statement.column_name(colidx).to_string(), Value::String(statement.read::<String>(colidx).unwrap()) ),
+                sqlite::Type::Integer => _temp.insert(statement.column_name(colidx).to_string(), Value::Number( Number::from( statement.read::<i64>(colidx).unwrap()) ) ),
+                sqlite::Type::Float => {
+                    let _myval = Number::from_f64(  statement.read::<f64>(colidx).unwrap() ).unwrap();
+                    _temp.insert(statement.column_name(colidx).to_string(), Value::Number( _myval ) )
+                },
+                _ => Some(Value::Bool(false) ), //discarded other type
+            };
+        }
+        result_vec.push(_temp);
+    }
+    Ok(HttpResponse::Ok().body(serde_json::to_string_pretty(&result_vec).unwrap()))
 }
 
 async fn container_status() -> HttpResponse {
@@ -100,6 +133,7 @@ async fn main() -> std::io::Result<()> {
                 .service(savelog)
                 .service(getlog)
                 .service(savelog_json)
+                .service(runsql)
                 //Or we can remove the macro and directly use route here
                 // .route("/savelog", web::post().to(savelog))
                 // .route("/json/savelog", web::post().to(savelog_json))
