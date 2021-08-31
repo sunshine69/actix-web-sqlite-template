@@ -7,16 +7,17 @@ use serde::{Deserialize, Serialize};
 
 extern crate dotenv;
 use dotenv::dotenv;
-use std::env;
 
 extern crate sqlite;
-mod utils;
+
+#[path = "utils.rs"]
+mod u;
 
 #[get("/log/{log_id}/{field_name}")] // <- define path parameters
 async fn getlog(web::Path((log_id, field_name)): web::Path<(i64, String)>) -> Result<String> {
     println!("GETLOG");
     use sqlite::Value;
-    let conn = utils::get_dbconnection();
+    let conn = u::get_dbconnection();
     let mut cursor = conn.prepare("SELECT id, host FROM log WHERE id = :id").unwrap().into_cursor();
     cursor.bind_by_name(vec![(":id", Value::Integer(log_id))]).unwrap();
     let mut host: String = "".to_string();
@@ -41,7 +42,7 @@ const MAX_SIZE: usize = 262_144; // max payload size is 256k
 
 #[post("/savelog")]
 async fn savelog(form: web::Form<Log>) -> Result<HttpResponse, Error> {
-    let conn = utils::get_dbconnection();
+    let conn = u::get_dbconnection();
     let mut stmt = conn.prepare("INSERT INTO log(host, application, message, logfile) VALUES(?, ?, ?, ?)").unwrap();
     stmt.bind(1, form.host.as_str()).unwrap();
     stmt.bind(2, form.application.as_str()).unwrap();
@@ -54,7 +55,7 @@ async fn savelog(form: web::Form<Log>) -> Result<HttpResponse, Error> {
 
 #[post("/json/savelog")]
 async fn savelog_json(mut payload: web::Payload) -> Result<HttpResponse, Error> {
-    // let conn = utils::get_dbconnection();
+    // let conn = u::get_dbconnection();
     let mut body = web::BytesMut::new();
     while let Some(chunk) = payload.next().await {
         let chunk = chunk?;
@@ -80,23 +81,16 @@ async fn main() -> std::io::Result<()> {
     // for (key, value) in env::vars() {
     //     println!("{}: {}", key, value);
     // }
-    utils::setup_database();
-    let server_string: String;
+    use u::*;
+    setup_database();
 
-    if let Ok(server_port) = env::var("SERVER_PORT") {
-        server_string = format!("0.0.0.0:{}", server_port);
-    } else {
-        server_string = "0.0.0.0:8080".to_string();
-    }
-    let secret_header: &'static str;
-    if let Ok(_secret_header) = env::var("SERVER_TOKEN") {
-        println!("[INFO] found SERVER_TOKEN {}", _secret_header);
-        secret_header = string_to_static_str(_secret_header);
-    } else {
-        secret_header = "1qa2ws";
-    }
+    let server_port = get_env("SERVER_PORT", "8080");
+    let server_string = format!("0.0.0.0:{}", server_port);
 
+    let secret_header_string = get_env("SERVER_TOKEN", "1qa2ws");
+    let secret_header = string_to_static_str(secret_header_string);
     println!("server_string is {}", server_string);
+
     let http_server = HttpServer::new(move || {
         App::new()
         .service(
@@ -114,24 +108,14 @@ async fn main() -> std::io::Result<()> {
         // .route("/", web::to(|| HttpResponse::Ok()))
         .route("/container_status", web::get().to(container_status))
     });
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
-    if let Ok(ssl_key) = env::var("SSL_KEY") {
-        if ssl_key != "" {
-            builder.set_private_key_file(ssl_key, SslFiletype::PEM).unwrap();
-            if let Ok(ssl_cert) = env::var("SSL_CERT") {
-                builder.set_certificate_chain_file(ssl_cert).unwrap();
-                http_server.bind_openssl(server_string, builder)?.run().await
-            } else {
-                http_server.bind(server_string,)?.run().await
-            }
-        } else {
-            http_server.bind(server_string,)?.run().await
-        }
+    let ssl_key = get_env("SSL_KEY", "");
+    let ssl_cert = get_env("SSL_CERT", "");
+    if ssl_key != "" && ssl_cert != "" {
+        let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+        builder.set_private_key_file(ssl_key, SslFiletype::PEM).unwrap();
+        builder.set_certificate_chain_file(ssl_cert).unwrap();
+        http_server.bind_openssl(server_string, builder)?.run().await
     } else {
         http_server.bind(server_string,)?.run().await
     }
-}
-
-fn string_to_static_str(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
 }
