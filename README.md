@@ -12,4 +12,5 @@ I might add a branch later to use `diesel`.
 
 - Actix-web is one of the fastest web framework on earth (base on a lot of benchmark)
 - `Rust` admit that you spend time fighting with the compiler well, you will be rewarded with happiness and nearly bug free code
+- You will be able to write code that other look and say `wow` it is cool stuff.
 - The next fight will be pretty small if you get used in thinking `Rusty`. :P 
