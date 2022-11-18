@@ -15,20 +15,18 @@ use sqlite::State;
 
 #[path = "utils.rs"]
 mod u;
-
+// curl -X GET 'http://localhost:8080/log/2/sss' -H "Content-Type: multipart/form-data" -H 'X-Gitlab-Token: 1234'
 #[get("/log/{log_id}/{field_name}")] // <- define path parameters
 async fn getlog(web::Path((log_id, field_name)): web::Path<(i64, String)>) -> Result<String> {
     println!("GETLOG");
-    use sqlite::Value;
     let conn = u::get_dbconnection();
-    let mut cursor = conn.prepare("SELECT id, host FROM log WHERE id = :id").unwrap().into_cursor();
-    cursor.bind_by_name(vec![(":id", Value::Integer(log_id))]).unwrap();
-    let mut host: String = "".to_string();
     let mut id: i64;
-    while let Some(row) = cursor.next().unwrap() {
-        id = row[0].as_integer().unwrap();
-        host = row[1].as_string().unwrap().to_string();
-        println!("name = {}", id);
+    let mut host: String = "".to_string();
+    for row in conn.prepare("SELECT id, host FROM log WHERE id = ?").unwrap().into_iter()
+    .bind((1, log_id)).unwrap().map(|row| row.unwrap() ){
+        id = row.read::<i64, _>("id");
+        host = row.read::<&str, _>("host").to_owned();
+        println!("id = {}", id);
         println!("host = {}", host);
     }
     Ok(format!("Welcome {log_id}, host {host}! field_name {fname}", log_id=log_id, host=host, fname=field_name))
@@ -48,12 +46,12 @@ struct Log {
 async fn savelog(form: web::Form<Log>) -> Result<HttpResponse, Error> {
     let conn = u::get_dbconnection();
     let mut stmt = conn.prepare("INSERT INTO log(host, application, message, logfile) VALUES(?, ?, ?, ?)").unwrap();
-    stmt.bind(1, form.host.as_str()).unwrap();
-    stmt.bind(2, form.application.as_str()).unwrap();
-    stmt.bind(3, form.message.as_str()).unwrap();
-    stmt.bind(4, form.logfile.as_str()).unwrap();
-    stmt.next().unwrap();
+    if let Err(err) = stmt.bind((1, form.host.as_str() )) { panic!("Error {}", err) }
+    if let Err(err) = stmt.bind((2, form.application.as_str() )) { panic!("Error {}", err) }
+    if let Err(err) = stmt.bind((3, form.message.as_str())) { panic!("Error {}", err) }
+    if let Err(err) = stmt.bind((4, form.logfile.as_str())) { panic!("Error {}", err) }
 
+    stmt.next().unwrap();
     Ok(HttpResponse::Ok().body("OK log saved"))
 }
 
@@ -89,12 +87,12 @@ async fn runsql(form: web::Form<FormSql>) -> Result<HttpResponse, Error> {
     while let State::Row = statement.next().unwrap() {
         let mut _temp = Map::new();
         for colidx in 0..statement.column_count() {
-            match statement.column_type(colidx) {
-                sqlite::Type::String => _temp.insert(statement.column_name(colidx).to_string(), Value::String(statement.read::<String>(colidx).unwrap()) ),
-                sqlite::Type::Integer => _temp.insert(statement.column_name(colidx).to_string(), Value::Number( Number::from( statement.read::<i64>(colidx).unwrap()) ) ),
+            match statement.column_type(colidx).unwrap() {
+                sqlite::Type::String => _temp.insert(statement.column_name(colidx).unwrap().to_string(), Value::String(statement.read::<String, _>(colidx).unwrap()) ),
+                sqlite::Type::Integer => _temp.insert(statement.column_name(colidx).unwrap().to_string(), Value::Number( Number::from( statement.read::<i64,_>(colidx).unwrap()) ) ),
                 sqlite::Type::Float => {
-                    let _myval = Number::from_f64(  statement.read::<f64>(colidx).unwrap() ).unwrap();
-                    _temp.insert(statement.column_name(colidx).to_string(), Value::Number( _myval ) )
+                    let _myval = Number::from_f64(  statement.read::<f64, _>(colidx).unwrap() ).unwrap();
+                    _temp.insert(statement.column_name(colidx).unwrap().to_string(), Value::Number( _myval ) )
                 },
                 _ => Some(Value::Bool(false) ), //discarded other type
             };
