@@ -17,7 +17,8 @@ use sqlite::State;
 mod u;
 // curl -X GET 'http://localhost:8080/log/2/sss' -H "Content-Type: multipart/form-data" -H 'X-Gitlab-Token: 1234'
 #[get("/log/{log_id}/{field_name}")] // <- define path parameters
-async fn getlog(web::Path((log_id, field_name)): web::Path<(i64, String)>) -> Result<String> {
+async fn getlog(path: web::Path<(i64, String)>) -> Result<String> {
+    let (log_id, field_name) = path.into_inner();
     println!("GETLOG");
     let conn = u::get_dbconnection();
     let mut id: i64;

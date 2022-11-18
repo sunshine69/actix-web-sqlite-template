@@ -6,10 +6,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "3", features = ["openssl"] }
+actix-web = { version = "4.2.1", features = ["openssl"] }
 dotenv = "0.15.0"
-sqlite = "0.30.1"
-serde = "1"
+sqlite = { version = "0.30.1"}
+serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 futures = "0.3.1"
 openssl = { version = "0.10", features = ["vendored"]}
